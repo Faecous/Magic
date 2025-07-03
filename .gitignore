@@ -1,0 +1,38 @@
+# === Unity auto-generated folders ===
+[Ll]ibrary/
+[Tt]emp/
+[Oo]bj/
+[Bb]uild/
+[Ll]ogs/
+MemoryCaptures/
+
+# === User-specific Unity/VS Code configs ===
+.vscode/
+.vs/
+*.csproj
+*.unityproj
+*.sln
+*.suo
+*.tmp
+*.user
+*.userprefs
+*.pidb
+*.booproj
+*.svd
+
+# === OS clutter ===
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# === Optional: ignore build output folders if not versioning builds ===
+Build/
+build/
+Logs/
+logs/
+Temp/
+temp/
+
+# === Collab & Plastic (if not using) ===
+.collabignore
+.PlasticSCM/
