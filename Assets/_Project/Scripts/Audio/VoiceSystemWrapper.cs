@@ -1,35 +1,47 @@
 using UnityEngine;
 using System.Collections;
+using System.Collections.Generic;
+using System.Text;
+using Pv;
 
 /// <summary>
-/// Handles push-to-talk voice recording and playback for testing purposes.
-/// This will eventually be replaced by the Picovoice implementation.
+/// Handles voice recording and real-time speech-to-text transcription using Picovoice Cheetah.
+/// It captures audio, processes it via Cheetah, and attempts to match the transcribed text
+/// to a known list of spells.
 /// </summary>
-[RequireComponent(typeof(AudioSource))]
 public class VoiceSystemWrapper : MonoBehaviour
 {
     [Header("Configuration")]
     [Tooltip("The maximum possible duration of a recording in seconds. This defines the size of the audio buffer.")]
     [SerializeField] private int maxRecordingSeconds = 10;
-    [Tooltip("The sample rate for the recording. 16000 is common for voice recognition.")]
+    [Tooltip("The sample rate for the recording. Cheetah requires 16000.")]
     [SerializeField] private int sampleRate = 16000;
+    [Tooltip("Flag to enable automatic punctuation in the transcription.")]
+    [SerializeField] private bool enableAutomaticPunctuation = true;
 
     [Header("References")]
     [Tooltip("The InputManager instance to get input events from. Should be on the same GameObject.")]
     [SerializeField] private InputManager inputManager;
 
-    private AudioSource audioSource;
+    // Picovoice
+    private const string accessKey = "wm1dQiOBhr3IWBu3yafI5pDEX0+2ToaMGEAEU8sjA8CAGVPLtOmdsQ=="; // [[memory:2182655]]
+    private Cheetah cheetah;
+    private Coroutine processAudioCoroutine;
+    private readonly StringBuilder transcribedTextBuilder = new StringBuilder();
+
+    // Microphone
     private string microphoneDevice;
     private AudioClip recordedClip;
+    
+    // Spell Logic
+    private List<string> spellList;
 
     /// <summary>
     /// Unity's Awake method, called when the script instance is being loaded.
-    /// We use this to get our component references and find a microphone.
+    /// We use this to get our component references, find a microphone, and set up our spell list.
     /// </summary>
     private void Awake()
     {
-        audioSource = GetComponent<AudioSource>();
-
         if (Microphone.devices.Length > 0)
         {
             microphoneDevice = Microphone.devices[0];
@@ -40,6 +52,29 @@ public class VoiceSystemWrapper : MonoBehaviour
             Debug.LogError("VoiceSystem: No microphone found! Voice recording will not work.");
             enabled = false; // Disable this component if no mic is available
         }
+        
+        InitializeSpellList();
+    }
+
+    /// <summary>
+    /// Populates the list of known spells.
+    /// In a production scenario, this would likely be loaded from a ScriptableObject or data file.
+    /// </summary>
+    private void InitializeSpellList()
+    {
+        spellList = new List<string>
+        {
+            "Totalus",
+            "Petrificus",
+            "Petrificus Totalus",
+            "Impedimenta",
+            "Episkey",
+            "Protego",
+            "Depulso",
+            "Stupefy",
+            "Expelliarmus",
+            "Reducto"
+        };
     }
 
     /// <summary>
@@ -52,7 +87,7 @@ public class VoiceSystemWrapper : MonoBehaviour
         {
             Debug.Log("VoiceSystem: Subscribing to InputManager events.");
             inputManager.OnStartRecording += StartRecording;
-            inputManager.OnStopRecording += StopRecordingAndPlayback;
+            inputManager.OnStopRecording += StopRecordingAndProcess;
         }
         else
         {
@@ -70,12 +105,37 @@ public class VoiceSystemWrapper : MonoBehaviour
         if (inputManager != null)
         {
             inputManager.OnStartRecording -= StartRecording;
-            inputManager.OnStopRecording -= StopRecordingAndPlayback;
+            inputManager.OnStopRecording -= StopRecordingAndProcess;
+        }
+        
+        // Ensure we stop and clean up if the object is disabled mid-recording
+        if (Microphone.IsRecording(microphoneDevice))
+        {
+            StopRecordingAndProcess();
+        }
+        else if (cheetah != null)
+        {
+            // Cleanup if somehow the component is disabled after cheetah is created but before recording starts
+            cheetah.Dispose();
+            cheetah = null;
         }
     }
 
     /// <summary>
-    /// Starts recording audio from the default microphone.
+    /// Unity's OnDestroy method, called when the component is being destroyed.
+    /// Ensures that we clean up the Cheetah instance to prevent memory leaks.
+    /// </summary>
+    private void OnDestroy()
+    {
+        if (cheetah != null)
+        {
+            cheetah.Dispose();
+            cheetah = null;
+        }
+    }
+
+    /// <summary>
+    /// Starts recording audio and initializes the Cheetah engine for transcription.
     /// Called by the OnStartRecording event from the InputManager.
     /// </summary>
     private void StartRecording()
@@ -83,70 +143,172 @@ public class VoiceSystemWrapper : MonoBehaviour
         if (Microphone.IsRecording(microphoneDevice)) return;
 
         Debug.Log("VoiceSystem: Started recording...");
-        // Start recording. We use 'true' for loop so it doesn't stop after the max duration.
-        // We will stop it manually when the button is released.
+        
+        try
+        {
+            cheetah = Cheetah.Create(accessKey, enableAutomaticPunctuation: enableAutomaticPunctuation);
+            Debug.Log($"VoiceSystem: Cheetah version {cheetah.Version} initialized.");
+            Debug.Log($"VoiceSystem: Cheetah Frame Length: {cheetah.FrameLength}, Sample Rate: {cheetah.SampleRate}");
+        }
+        catch (CheetahException ex)
+        {
+            Debug.LogError($"VoiceSystem: Failed to create Cheetah instance: {ex.Message}");
+            return;
+        }
+
         recordedClip = Microphone.Start(microphoneDevice, true, maxRecordingSeconds, sampleRate);
+        
+        processAudioCoroutine = StartCoroutine(ProcessAudio());
     }
 
     /// <summary>
-    /// Stops the microphone recording and plays the captured audio clip back.
+    /// Stops the microphone recording, finalizes the transcription, and checks for a spell match.
     /// Called by the OnStopRecording event from the InputManager.
     /// </summary>
-    private void StopRecordingAndPlayback()
+    private void StopRecordingAndProcess()
     {
-        Debug.Log("VoiceSystem: StopRecordingAndPlayback method entered.");
-
         if (!Microphone.IsRecording(microphoneDevice))
         {
-            Debug.LogWarning("VoiceSystem: Stop requested, but microphone wasn't recording.", this);
+            // This can happen if initialization failed but OnDisable is still called.
+            if (cheetah != null)
+            {
+                 Debug.LogWarning("VoiceSystem: Stop requested, but microphone wasn't recording. Cleaning up Cheetah.");
+                 cheetah.Dispose();
+                 cheetah = null;
+            }
             return;
         }
 
-        Debug.Log("VoiceSystem: Microphone is recording, proceeding to stop.");
+        Debug.Log("VoiceSystem: Stopping recording and processing final transcript...");
 
-        // Capture the position before we end the recording
-        int position = Microphone.GetPosition(microphoneDevice);
-        Debug.Log($"VoiceSystem: Captured audio position at {position} samples.");
+        if(processAudioCoroutine != null)
+        {
+            StopCoroutine(processAudioCoroutine);
+            processAudioCoroutine = null;
+        }
 
         Microphone.End(microphoneDevice);
-        Debug.Log("VoiceSystem: Microphone.End() called. Recording has officially stopped.");
-
-        if (position <= 0)
+        
+        if (cheetah != null)
         {
-            Debug.LogWarning("VoiceSystem: No audio was recorded (position is 0). Nothing to play.", this);
-            return;
-        }
-
-        if (recordedClip != null)
-        {
-            Debug.Log("VoiceSystem: Preparing trimmed clip for playback.");
-            // Create a new audio clip with the correct length to trim silence
-            float[] soundData = new float[position * recordedClip.channels];
-            recordedClip.GetData(soundData, 0);
-
-            AudioClip trimmedClip = AudioClip.Create("RecordedSample", position, recordedClip.channels, sampleRate, false);
-            trimmedClip.SetData(soundData, 0);
-
-            audioSource.clip = trimmedClip;
+            // Process any remaining audio data in the buffer before flushing.
+            // This is a simplified approach. A more robust implementation would handle the final buffer from the coroutine.
             
-            Debug.Log("VoiceSystem: Starting playback...");
-            audioSource.Play();
-            StartCoroutine(LogWhenPlaybackFinished(trimmedClip.length));
+            CheetahTranscript finalTranscriptObj = cheetah.Flush();
+            if (!string.IsNullOrEmpty(finalTranscriptObj.Transcript))
+            {
+                transcribedTextBuilder.Append(finalTranscriptObj.Transcript);
+            }
+
+            string finalTranscript = transcribedTextBuilder.ToString().Trim();
+            Debug.Log($"VoiceSystem: Final Transcript: '{finalTranscript}'");
+            
+            CheckForSpellMatch(finalTranscript);
+
+            cheetah.Dispose();
+            cheetah = null;
         }
-        else
+        
+        transcribedTextBuilder.Clear();
+        recordedClip = null;
+    }
+
+    /// <summary>
+    /// Coroutine that continuously processes audio from the microphone and feeds it to Cheetah.
+    /// </summary>
+    /// <returns>IEnumerator for the coroutine.</returns>
+    private IEnumerator ProcessAudio()
+    {
+        int lastPosition = 0;
+        int frameLength = cheetah.FrameLength;
+        List<short> pcmBuffer = new List<short>();
+
+        while (Microphone.IsRecording(microphoneDevice))
         {
-            Debug.LogWarning("VoiceSystem: Recorded clip was null, nothing to play back.", this);
+            int currentPosition = Microphone.GetPosition(microphoneDevice);
+            if (currentPosition < lastPosition)
+            {
+                // The microphone loop has wrapped around the buffer.
+                // Process the first part from lastPosition to the end of the clip.
+                ProcessChunk(lastPosition, recordedClip.samples, pcmBuffer, frameLength);
+                lastPosition = 0;
+            }
+
+            if (currentPosition > lastPosition)
+            {
+                // Process the part from the last position to the current position.
+                ProcessChunk(lastPosition, currentPosition, pcmBuffer, frameLength);
+                lastPosition = currentPosition;
+            }
+
+            yield return null;
         }
     }
 
     /// <summary>
-    /// A small coroutine that waits for the length of the audio clip and then logs a message.
+    /// Extracts a chunk of audio data, converts it to PCM, and processes it with Cheetah.
     /// </summary>
-    /// <param name="clipLength">The duration of the clip in seconds.</param>
-    /// <returns>IEnumerator for the coroutine.</returns>
-    private IEnumerator LogWhenPlaybackFinished(float clipLength)
+    /// <param name="startPosition">The starting sample position in the audio clip.</param>
+    /// <param name="endPosition">The ending sample position in the audio clip.</param>
+    /// <param name="pcmBuffer">A buffer to store unprocessed PCM data between calls.</param>
+    /// <param name="frameLength">The required frame length for Cheetah.</param>
+    private void ProcessChunk(int startPosition, int endPosition, List<short> pcmBuffer, int frameLength)
     {
-        yield return new WaitForSeconds(clipLength);
-        Debug.Log("VoiceSystem: Playback finished.");
+        int length = endPosition - startPosition;
+        if (length <= 0) return;
+
+        float[] samples = new float[length * recordedClip.channels];
+        recordedClip.GetData(samples, startPosition);
+
+        // Convert float samples to 16-bit PCM
+        for (int i = 0; i < samples.Length; i++)
+        {
+            pcmBuffer.Add((short)(samples[i] * 32767));
+        }
+
+        // Process full frames of PCM data
+        while (pcmBuffer.Count >= frameLength)
+        {
+            short[] frame = pcmBuffer.GetRange(0, frameLength).ToArray();
+            pcmBuffer.RemoveRange(0, frameLength);
+
+            try
+            {
+                CheetahTranscript transcriptObj = cheetah.Process(frame);
+                if (!string.IsNullOrEmpty(transcriptObj.Transcript))
+                {
+                    transcribedTextBuilder.Append(transcriptObj.Transcript);
+                    Debug.Log($"VoiceSystem: Partial transcript: '{transcribedTextBuilder.ToString()}'");
+                }
+            }
+            catch (CheetahException ex)
+            {
+                Debug.LogError($"VoiceSystem: Cheetah processing error: {ex.Message}");
+                // Stop the coroutine if a processing error occurs
+                if (processAudioCoroutine != null) StopCoroutine(processAudioCoroutine);
+            }
+        }
+    }
+
+    private void CheckForSpellMatch(string transcript)
+    {
+        if (string.IsNullOrWhiteSpace(transcript))
+        {
+            Debug.Log("VoiceSystem: Transcript is empty, no spell matched.");
+            return;
+        }
+
+        // Using OrdinalIgnoreCase for a case-insensitive comparison
+        foreach (var spell in spellList)
+        {
+            if (string.Equals(transcript, spell, System.StringComparison.OrdinalIgnoreCase))
+            {
+                Debug.Log($"<color=cyan>VoiceSystem: Matched Spell: {spell}!</color>");
+                // TODO: Fire an event with the matched spell data
+                return;
+            }
+        }
+        
+        Debug.Log($"VoiceSystem: No spell matched for transcript '{transcript}'.");
     }
 } 

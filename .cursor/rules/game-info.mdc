@@ -1,0 +1,106 @@
+---
+description: A breakdown of the vision of this game project.
+globs:
+alwaysApply: false
+---
+I. Project Vision & Core Design Document
+A. High-Level Concept
+"Project Spellcaster" is a third-person, skill-based magic dueling game built in Unity using the Universal Render Pipeline (URP). The core experience revolves around players engaging in fast-paced combat by casting a wide variety of spells. Player execution—precise aiming, correct gesture-drawing, timely voice commands, and reflexive defense—is paramount over traditional RPG stats.
+B. Core Design Pillars
+Skill Over Stats: Player success is determined by their ability to execute mechanics, not by superior equipment stats.
+Deep Player Expression: Players define their playstyle through extensive customization of their wand and spells.
+Fair & Readable Combat: All actions must have clear visual/audio feedback. Mechanics will not unfairly punish a player for a successful action (e.g., no stun-on-hit for the attacker).
+Data-Driven Architecture: The game is built on ScriptableObjects to separate game data from logic, allowing for rapid iteration and content creation.
+C. The Core Gameplay Loop: Casting a Spell
+Intent (Casting Mode): The player presses and holds a "casting button." This activates voice recognition and unlocks the cursor for gesture drawing.
+Execution (Voice & Gesture): The player speaks the spell's incantation and simultaneously draws its corresponding pattern. All gesture patterns are designed to end at the screen's center.
+Validation: Upon releasing the button, the system checks if the heard incantation matches the drawn gesture.
+Chambering: On success, the spell is "chambered." A standard aiming reticle appears at the screen's center.
+Aiming Grace Period: A tunable timer begins (default: 1000ms), giving the player a window to aim.
+Firing: The player fires the chambered spell with a separate "fire" button. The spell fizzles if the grace period expires.
+
+II. Detailed System Implementation Blueprints
+A. Voice Recognition System
+Technology: We will use On-Device Keyword Spotting (KWS) via the Picovoice Porcupine library. This ensures minimal latency and offline functionality.
+Activation: The system operates in a Push-to-Talk (PTT) model, only processing audio when the casting button is held.
+Architecture: All interaction with the Picovoice library must be isolated within a single VoiceSystemWrapper.cs script. This script will initialize Porcupine with custom keyword models (.ppn files) and translate Porcupine's detection events into simple C# events that the SpellCaster can subscribe to.
+B. Gesture Recognition System
+Mechanics: When casting, an invisible "Casting Plane" is created in front of the camera. The system raycasts from the mouse cursor to this plane to record a 3D path.
+Normalization: Before validation, the recorded path is normalized (scaled and centered) to be independent of screen resolution and drawing speed.
+Validation: The normalized path is compared against the waypoint sequence defined in the corresponding GesturePatternData to determine a match.
+C. Defensive Mechanics
+Protego (Tactical): A spell cast via the standard voice/gesture ritual. Creates a sustained shield that blocks AoE and multiple projectiles.
+Parry (Reflexive): A dedicated "block" button. If the player's wand physically intersects an incoming projectile while the button is held, the spell is parried. Perfect alignment destroys the projectile; imperfect alignment deflects it.
+D. Character State & Physics
+Status Effects: A StatusEffectController on each character will manage a list of temporary effects (Stun, Disarm, Ragdoll, etc.), defined by StatusEffectData ScriptableObjects.
+Ragdoll Physics: Specific status effects will trigger a RagdollController, which disables the character's animator and enables full-body physics for a satisfying, dynamic reaction. The controller will also manage the recovery process.
+E. Data Management & Persistence
+Spellbook Manager: A SpellbookManager.cs script will automatically load all SpellData assets at runtime into a central dictionary, keyed by their incantation string. This creates a global, searchable database of all spells.
+Wand Customization: Wands are an assembly of WandComponentData parts (Wood, Core, Length). The WandAssembly.cs class will calculate the final combined stat modifiers from these parts.
+Save System: A SaveSystem.cs will handle persistence. It will save player progress, including the unique identifiers for their chosen wand components and list of known spells, to a local file (e.g., JSON).
+F. Component Reusability & AI
+All character components (StatusEffectController, SpellCaster, etc.) must be designed to be reusable for both players and AI-controlled enemies. The enemy's AIController script will call the same public functions as the player InputManager, simulating spellcasting and actions.
+
+III. Complete Project File Architecture
+A. Root Folder Structure
+Create this hierarchy inside the Assets/ folder.
+Generated code
+     Assets/
+└── _Project/
+    ├── Audio/
+    ├── Materials/
+    ├── Prefabs/
+    │   ├── Characters/
+    │   ├── Spells/
+    │   └── Environment/
+    ├── Scenes/
+    ├── ScriptableObjects/
+    │   ├── Spells/
+    │   ├── StatusEffects/
+    │   └── WandComponents/
+    │       ├── Cores/
+    │       └── Woods/
+    └── Scripts/
+        ├── Core/
+        ├── Data/
+        ├── Input/
+        ├── Magic/
+        │   ├── Spells/
+        │   └── Wand/
+        ├── Player/
+        ├── UI/
+        └── Utilities/
+   
+B. Detailed Script File Breakdown
+Core/
+GameStateManager.cs (MonoBehaviour): Manages high-level game states (MainMenu, InGame, Paused).
+SpellbookManager.cs (MonoBehaviour): Loads all SpellData at runtime into a central, accessible database.
+SaveSystem.cs (Static Class): Handles saving and loading player progress and wand configuration.
+Data/ (Definitions for ScriptableObjects)
+SpellData.cs (ScriptableObject): Defines a spell's name, stats, visuals, sounds, and effects.
+GesturePatternData.cs (ScriptableObject): Defines the waypoint sequence for a single gesture.
+StatusEffectData.cs (ScriptableObject): Defines a status effect's type, duration, and feedback.
+WandComponentData.cs (abstract ScriptableObject): Base class for all wand parts.
+WandWoodData.cs (ScriptableObject): Represents a wand wood type. Inherits from WandComponentData.
+WandCoreData.cs (ScriptableObject): Represents a wand core type. Inherits from WandComponentData.
+Input/
+InputManager.cs (MonoBehaviour): Centralizes all raw player input and broadcasts game-specific events.
+Magic/Spells/
+Projectile.cs (MonoBehaviour): Attached to spell prefabs; manages movement, collision, and effects based on its SpellData.
+Magic/Wand/
+WandAssembly.cs (Plain C# Class [System.Serializable]): Represents a constructed wand and calculates combined stat modifiers.
+Player/
+PlayerController.cs (MonoBehaviour): Handles character locomotion and orientation.
+SpellCaster.cs (MonoBehaviour): The "conductor" for magic; manages the casting state machine and validation.
+ParryController.cs (MonoBehaviour): Manages the parry/deflection reflex mechanic.
+WandCollisionHandler.cs (MonoBehaviour): Lives on the wand; detects spell collisions and reports to the ParryController.
+StatusEffectController.cs (MonoBehaviour): Manages all active status effects on a character.
+RagdollController.cs (MonoBehaviour): Toggles between animated and ragdoll physics states.
+Audio/
+VoiceSystemWrapper.cs (MonoBehaviour): The isolated wrapper for the Picovoice Porcupine library.
+AudioManager.cs (MonoBehaviour): A central manager for all non-voice sound effects.
+UI/
+PlayerHUD.cs (MonoBehaviour): Manages display of health, stamina, etc.
+CastingUI.cs (MonoBehaviour): Provides visual feedback for the casting ritual (grid, timer).
+Utilities/
+Enums.cs (Plain C# Script): A central file to hold all public enumerations (EffectType, SpellFamily, etc.).
