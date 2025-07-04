@@ -65,6 +65,7 @@ public class VoiceSystemWrapper : MonoBehaviour
         spellList = new List<string>
         {
             "Totalus",
+            "Magic",
             "Petrificus",
             "Petrificus Totalus",
             "Impedimenta",
