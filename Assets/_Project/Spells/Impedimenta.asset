@@ -15,7 +15,7 @@ MonoBehaviour:
   incantation: Impedimenta
   gesturePattern: {fileID: 11400000, guid: 3d572aa9a949b784b8ed6d3444289608, type: 2}
   primaryEffect:
-    message: Impedimenta!
+    message: Impedimenta
     fontSize: 24
     lifetime: 2
     screenPosition: {x: 0.5, y: 0.5}

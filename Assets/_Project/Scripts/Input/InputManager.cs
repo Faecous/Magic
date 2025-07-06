@@ -12,6 +12,7 @@ public class InputManager : MonoBehaviour
     public Vector2 Move { get; private set; }
     public Vector2 Look { get; private set; }
     public bool IsSprinting { get; private set; }
+    public bool Jump { get; private set; }
 
     // Events for push-to-talk recording
     public event Action OnStartRecording;
@@ -19,6 +20,11 @@ public class InputManager : MonoBehaviour
 
     // These function names MUST match the names in the Input Actions asset
     // (e.g., "Move", "Look", "Sprint")
+
+    private void OnJump(InputValue value)
+    {
+        Jump = value.isPressed;
+    }
 
     private void OnRecord(InputValue value)
     {

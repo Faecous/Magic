@@ -22,11 +22,13 @@ namespace Magic.Gestures
         public bool IsRecording { get; private set; }
 
         private Camera mainCamera;
+        private CustomCameraController cameraController;
         private Plane castingPlane;
 
         private void Awake()
         {
             mainCamera = Camera.main;
+            cameraController = mainCamera.GetComponent<CustomCameraController>();
         }
 
         /// <summary>
@@ -43,7 +45,8 @@ namespace Magic.Gestures
             // Create a plane in front of the camera to draw on
             castingPlane = new Plane(mainCamera.transform.forward, mainCamera.transform.position + mainCamera.transform.forward * planeDistance);
 
-            // TODO: Unlock and show the cursor
+            // Unlock the camera and show the cursor for drawing
+            if(cameraController != null) cameraController.UnlockCamera();
         }
 
         /// <summary>
@@ -54,7 +57,8 @@ namespace Magic.Gestures
             if (!IsRecording) return;
             IsRecording = false;
 
-            // TODO: Lock and hide the cursor
+            // Lock the camera and hide the cursor
+            if(cameraController != null) cameraController.LockCamera();
         }
 
         private void Update()

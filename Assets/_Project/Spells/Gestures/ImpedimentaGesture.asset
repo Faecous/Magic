@@ -13,5 +13,6 @@ MonoBehaviour:
   m_Name: ImpedimentaGesture
   m_EditorClassIdentifier: 
   waypoints:
+  - {x: 0, y: 0}
   - {x: -0.1, y: 0}
   - {x: 0.1, y: 0}
