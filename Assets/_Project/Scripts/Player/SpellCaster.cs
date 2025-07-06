@@ -28,10 +28,10 @@ public class SpellCaster : MonoBehaviour
         // Component on self
         gestureRecorder = GetComponent<GestureRecorder>();
         
-        // Find required systems
-        inputManager = FindObjectOfType<InputManager>();
-        voiceSystem = FindObjectOfType<VoiceSystemWrapper>();
-        spellbookManager = FindObjectOfType<SpellbookManager>();
+        // Find required systems using the modern FindFirstObjectByType method
+        inputManager = FindFirstObjectByType<InputManager>();
+        voiceSystem = FindFirstObjectByType<VoiceSystemWrapper>();
+        spellbookManager = FindFirstObjectByType<SpellbookManager>();
         mainCamera = Camera.main;
 
         // Validate that all systems were found

@@ -38,8 +38,8 @@ public class CustomCameraController : MonoBehaviour
 
     void Start()
     {
-        // Find the InputManager in the scene
-        inputManager = FindObjectOfType<InputManager>();
+        // Find the InputManager in the scene using the modern FindFirstObjectByType method
+        inputManager = FindFirstObjectByType<InputManager>();
         if (inputManager == null)
         {
             Debug.LogError("CustomCameraController: Could not find an InputManager in the scene!", this);
