@@ -48,7 +48,7 @@ public class CustomCharacterController : MonoBehaviour
     private static readonly int AnimIDForwardSpeed = Animator.StringToHash("ForwardSpeed");
     private static readonly int AnimIDRightSpeed = Animator.StringToHash("RightSpeed");
     private static readonly int AnimIDJump = Animator.StringToHash("Jump");
-    private static readonly int AnimIDLand = Animator.StringToHash("Land");
+    private static readonly int AnimIDIsMoving = Animator.StringToHash("IsMoving");
 
     private void Start()
     {
@@ -113,7 +113,8 @@ public class CustomCharacterController : MonoBehaviour
         // We transform the world-space velocity into the character's local space
         // to get forward and right speed components for a 2D blend tree.
         Vector3 localVelocity = transform.InverseTransformDirection(currentHorizontalVelocity);
-        HandleAnimation(localVelocity.z, localVelocity.x);
+        bool isMoving = localVelocity.sqrMagnitude > 0.01f;
+        HandleAnimation(localVelocity.z, localVelocity.x, isMoving);
         
         // Track our grounded state for landing detection
         wasGrounded = characterController.isGrounded;
@@ -122,7 +123,7 @@ public class CustomCharacterController : MonoBehaviour
     /// <summary>
     /// Updates the Animator with the character's current state using local forward and right speeds.
     /// </summary>
-    private void HandleAnimation(float forwardSpeed, float rightSpeed)
+    private void HandleAnimation(float forwardSpeed, float rightSpeed, bool isMoving)
     {
         if (animator == null) return;
         
@@ -130,6 +131,7 @@ public class CustomCharacterController : MonoBehaviour
         animator.SetFloat(AnimIDForwardSpeed, forwardSpeed);
         animator.SetFloat(AnimIDRightSpeed, rightSpeed);
         animator.SetBool(AnimIDGrounded, characterController.isGrounded);
+        animator.SetBool(AnimIDIsMoving, isMoving);
     }
     
     /// <summary>
@@ -150,11 +152,8 @@ public class CustomCharacterController : MonoBehaviour
     {
         if (characterController.isGrounded && verticalVelocity < 0.0f)
         {
-            // Check if we just landed from a fall/jump
-            if (!wasGrounded)
-            {
-                animator.SetTrigger(AnimIDLand);
-            }
+            // The landing animation is now triggered by the Animator State Machine
+            // using the "Grounded" bool, so a trigger is no longer needed here.
 
             // Reset velocity when on the ground. A small negative value helps keep the controller grounded.
             verticalVelocity = -2f;
