@@ -40,6 +40,7 @@ public class CustomCharacterController : MonoBehaviour
     private float verticalVelocity;
     private Vector3 currentHorizontalVelocity;
     private bool wasGrounded;
+    private bool isAwaitingJumpForce;
     private readonly float gravity = -9.81f;
     
     // --- Animator Hashes ---
@@ -94,20 +95,14 @@ public class CustomCharacterController : MonoBehaviour
         }
         currentHorizontalVelocity = Vector3.Lerp(currentHorizontalVelocity, targetHorizontalVelocity, Time.deltaTime * smoothRate);
 
-        // --- Calculate Vertical Movement ---
-        HandleGravity();
+        // --- Handle Gravity and Jumping ---
+        // This now happens before the final Move call.
+        HandleGravityAndJump();
         Vector3 verticalVelocityVector = new Vector3(0, verticalVelocity, 0);
 
         // --- Apply Combined Movement ---
         // We combine horizontal and vertical velocities and apply them in a single .Move() call.
         characterController.Move((currentHorizontalVelocity + verticalVelocityVector) * Time.deltaTime);
-
-        // --- Handle Jumping ---
-        // We check for the jump input here, after gravity and movement have been applied for the frame.
-        if (inputManager.Jump && wasGrounded)
-        {
-            HandleJump();
-        }
 
         // --- Update Animation ---
         // We transform the world-space velocity into the character's local space
@@ -116,7 +111,7 @@ public class CustomCharacterController : MonoBehaviour
         bool isMoving = localVelocity.sqrMagnitude > 0.01f;
         HandleAnimation(localVelocity.z, localVelocity.x, isMoving);
         
-        // Track our grounded state for landing detection
+        // Track our grounded state for the next frame's logic.
         wasGrounded = characterController.isGrounded;
     }
 
@@ -135,35 +130,52 @@ public class CustomCharacterController : MonoBehaviour
     }
     
     /// <summary>
-    /// Handles the jump logic when the jump input is received.
+    /// Manages both gravity and the jump action. This consolidation prevents bugs where
+    /// a jump is triggered incorrectly on the same frame that the character lands.
     /// </summary>
-    private void HandleJump()
+    private void HandleGravityAndJump()
     {
-        // The check for grounded is now done in Update before calling this.
-        // The formula to reach a specific height is: sqrt(height * -2 * gravity)
-        verticalVelocity = Mathf.Sqrt(jumpHeight * -2f * gravity);
-        animator.SetTrigger(AnimIDJump);
-    }
-
-    /// <summary>
-    /// Applies gravity to the character controller.
-    /// </summary>
-    private void HandleGravity()
-    {
-        if (characterController.isGrounded && verticalVelocity < 0.0f)
+        if (characterController.isGrounded)
         {
-            // The landing animation is now triggered by the Animator State Machine
-            // using the "Grounded" bool, so a trigger is no longer needed here.
+            // When on the ground, our default vertical velocity is slightly negative to keep us "stuck".
+            // We only change this when we jump.
+            if (verticalVelocity < 0.0f)
+            {
+                verticalVelocity = -2f;
+            }
 
-            // Reset velocity when on the ground. A small negative value helps keep the controller grounded.
-            verticalVelocity = -2f;
+            // Check for jump input. We only process this if we are NOT already waiting for a jump animation event.
+            if (inputManager.JumpStartedThisFrame && !isAwaitingJumpForce)
+            {
+                // Trigger the animation and set the flag. The animation will call ApplyJumpForce() at the correct frame.
+                animator.SetTrigger(AnimIDJump);
+                isAwaitingJumpForce = true;
+            }
         }
         else
         {
-            // Apply gravity over time when in the air
+            // If we are in the air for any reason (jump, fall), we are no longer waiting for a jump event.
+            // This is a safety reset in case the character walks off a ledge while a jump was pending.
+            isAwaitingJumpForce = false;
+            
+            // We are in the air, apply gravity.
             verticalVelocity += gravity * Time.deltaTime;
         }
+    }
+    
+    /// <summary>
+    /// This public method is called by an Animation Event at the precise moment
+    /// the character should lift off the ground during a jump animation.
+    /// </summary>
+    public void ApplyJumpForce()
+    {
+        // A flag ensures this logic only runs when a jump has been initiated.
+        if (!isAwaitingJumpForce) return;
+
+        // The formula to reach a specific height is: sqrt(height * -2 * gravity)
+        verticalVelocity = Mathf.Sqrt(jumpHeight * -2f * gravity);
         
-        // The Move call is now done in Update() to consolidate physics calls.
+        // Reset the flag so this isn't called again accidentally.
+        isAwaitingJumpForce = false;
     }
 } 

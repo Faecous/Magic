@@ -12,7 +12,8 @@ public class InputManager : MonoBehaviour
     public Vector2 Move { get; private set; }
     public Vector2 Look { get; private set; }
     public bool IsSprinting { get; private set; }
-    public bool Jump { get; private set; }
+    public bool IsJumpHeld { get; private set; }
+    public bool JumpStartedThisFrame { get; private set; }
 
     // Events for push-to-talk recording
     public event Action OnStartRecording;
@@ -23,7 +24,11 @@ public class InputManager : MonoBehaviour
 
     private void OnJump(InputValue value)
     {
-        Jump = value.isPressed;
+        IsJumpHeld = value.isPressed;
+        if (value.isPressed)
+        {
+            JumpStartedThisFrame = true;
+        }
     }
 
     private void OnRecord(InputValue value)
@@ -53,5 +58,12 @@ public class InputManager : MonoBehaviour
     private void OnSprint(InputValue value)
     {
         IsSprinting = value.isPressed;
+    }
+
+    private void LateUpdate()
+    {
+        // Reset one-shot flags at the end of the frame.
+        // This ensures they are only true for the single frame they were triggered.
+        JumpStartedThisFrame = false;
     }
 }
